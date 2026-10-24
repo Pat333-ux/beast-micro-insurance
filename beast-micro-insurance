@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract MicroInsurancePool {
+    struct Claim {
+        uint256 claimId;
+        address claimant;
+        uint256 requestedAmount;
+        string evidenceHash;
+        uint256 approvals;
+        bool paid;
+        bool rejected;
+    }
+
+    mapping(uint256 => Claim) public claims;
+    mapping(address => bool) public assessors;
+    uint256 public claimCounter;
+    uint256 public poolBalance;
+
+    event ClaimSubmitted(uint256 indexed claimId, address indexed claimant, uint256 amount);
+    event ClaimApproved(uint256 indexed claimId, uint256 approvals);
+    event ClaimPaid(uint256 indexed claimId, address indexed claimant, uint256 amount);
+
+    receive() external payable {
+        poolBalance += msg.value;
+    }
+
+    function submitClaim(uint256 _amount, string calldata _evidenceHash) external {
+        claimCounter++;
+        claims[claimCounter] = Claim({
+            claimId: claimCounter,
+            claimant: msg.sender,
+            requestedAmount: _amount,
+            evidenceHash: _evidenceHash,
+            approvals: 0,
+            paid: false,
+            rejected: false
+        });
+        emit ClaimSubmitted(claimCounter, msg.sender, _amount);
+    }
+
+    function approveClaim(uint256 _claimId) external {
+        require(assessors[msg.sender], "Only authorized assessors can approve");
+        Claim storage claim = claims[_claimId];
+        require(!claim.paid && !claim.rejected, "Claim already finalized");
+
+        claim.approvals++;
+        emit ClaimApproved(_claimId, claim.approvals);
+
+        if (claim.approvals >= 2 && poolBalance >= claim.requestedAmount) {
+            claim.paid = true;
+            poolBalance -= claim.requestedAmount;
+            payable(claim.claimant).transfer(claim.requestedAmount);
+            emit ClaimPaid(_claimId, claim.claimant, claim.requestedAmount);
+        }
+    }
+}
